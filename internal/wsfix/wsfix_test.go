@@ -299,3 +299,44 @@ func TestFixAll(t *testing.T) {
 		})
 	}
 }
+
+// TestPunctuationTokens: a `.`/`:` that starts a token and a `%` labelling a
+// unit are not punctuation-space findings, so -all leaves them; the genuine
+// cases beside them still are (EOS #278 follow-up).
+func TestPunctuationTokens(t *testing.T) {
+	cases := []struct {
+		name, in string
+		findings int
+	}{
+		{"file extension", "\t<p>An .xlsx export of the plan.</p>", 0},
+		{"extension list", "\t<p>Accepted types: .csv, .xls, .xlsx.</p>", 0},
+		{"leading decimal", "\t<p>about .5 of it</p>", 0},
+		{"dotfile after hole", "\t<p>{ dir } .env</p>", 0},
+		{"css pseudo", "\t<p>use :root here</p>", 0},
+		{"unit label after comma", "\t<p>Poor below, %</p>", 0},
+		{"percent after word", "\t<p>in %</p>", 0},
+		{"percent after number", "\t<p>42 %</p>", 1},
+		{"percent after hole", "\t<p>{ v } %</p>", 1},
+		{"period after word", "\t<p>it .</p>", 1},
+		{"period after link", "\t<p>See <a>docs</a> .</p>", 1},
+		{"ellipsis-like dots", "\t<p>wait ...</p>", 1},
+		{"apostrophe s", "\t<p>{ name } ’s</p>", 1},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			src := wrap(c.in)
+			fs, _, err := Findings("c.gsx", []byte(src))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(fs) != c.findings {
+				t.Fatalf("findings = %d, want %d", len(fs), c.findings)
+			}
+			if c.findings == 0 {
+				if out, n, _ := Fix("c.gsx", []byte(src), true); n != 0 || string(out) != src {
+					t.Fatalf("-all changed %d:\n%s", n, out)
+				}
+			}
+		})
+	}
+}
