@@ -307,12 +307,14 @@ file is broken".
 
 ## `gsx fix` {#fix}
 
-`gsx fix whitespace [-l] [-d] [paths...]` rewrites `.gsx` files in place to
-apply the [`punctuation-line-break` and `redundant-space-literal`](./config.md#lint)
-fixes: it joins line breaks that render a space before closing punctuation or
-after opening punctuation, and drops `{ " " }` beside a line break that already
-renders one. `-l` lists and `-d` diffs without writing; both exit `1` when a
-file would change.
+`gsx fix whitespace [-l] [-d] [paths...]` rewrites `.gsx` files in place so
+they render what v0.4 rendered where the whitespace rule changed: it joins a
+line break that now renders a space before closing or after opening
+punctuation, or beside a string such as `{ " " }` that already supplies the
+space (see the
+[`punctuation-line-break` and `redundant-space-literal`](./config.md#lint)
+lints). Output elsewhere is unchanged. `-l` lists and `-d` diffs without
+writing; both exit `1` when a file would change.
 
 When upgrading from v0.4, run it **before** `gsx fmt`: the formatter turns
 those line breaks into same-line spaces, which are then indistinguishable from

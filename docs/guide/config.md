@@ -459,7 +459,7 @@ duplicate-attribute = "off"
 |---|---|
 | `duplicate-attribute` | An attribute set twice on one element; the browser keeps the first. |
 | `punctuation-line-break` | A line break that renders a space before `. , ; : ! ? ) ] ’ ” %` or after `( [ “ ‘`. Write the space on the same line if intended. |
-| `redundant-space-literal` | `{ " " }` beside a line break that already renders a space. |
+| `redundant-space-literal` | A string with a space at its edge (`{ " " }`, `{ " and " }`) beside a line break that renders a second space, including at the edge of an `if`/`for`/`switch` body. |
 | `self-reference-leaf` | A tag named like its enclosing component that renders as a plain element. |
 | `url-always-blocked` | A constant URL attribute value that always renders as `about:invalid#gsx`. |
 | `wrapper-cycle` | Components that wrap each other unconditionally, so rendering never ends. |

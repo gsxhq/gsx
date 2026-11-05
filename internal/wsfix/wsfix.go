@@ -27,16 +27,22 @@ func Findings(path string, src []byte) ([]wsnorm.Finding, *token.File, error) {
 // line break), which converges in a pass or two.
 const maxPasses = 8
 
-// Fix rewrites src until it has no whitespace findings and returns the result
-// with the number of findings fixed. Each fix deletes whitespace that renders
-// a space (before punctuation) or a redundant { " " }, so the result renders
-// like the old line-break rule at those boundaries and is otherwise unchanged.
+// Fix rewrites src until it has no migration findings (Finding.Migrate) and
+// returns the result with the number fixed. Each fix deletes a line break the
+// pre-v0.5 rule rendered as nothing, so the result renders exactly what that
+// rule rendered at those boundaries and is otherwise unchanged.
 func Fix(path string, src []byte) ([]byte, int, error) {
 	fixed := 0
 	for range maxPasses {
-		findings, file, err := Findings(path, src)
+		all, file, err := Findings(path, src)
 		if err != nil {
 			return nil, 0, err
+		}
+		var findings []wsnorm.Finding
+		for _, f := range all {
+			if f.Migrate {
+				findings = append(findings, f)
+			}
 		}
 		if len(findings) == 0 {
 			return src, fixed, nil

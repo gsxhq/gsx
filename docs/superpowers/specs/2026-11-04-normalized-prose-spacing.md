@@ -42,18 +42,25 @@ the new rule both change output.
 
 - `wsnorm.scanRegion` is the single whitespace rule: `Normalize` and `Lint`
   consume its word/run events, so a finding is always whitespace that renders.
-- `punctuation-line-break`: a newline-bearing run that renders before
-  `.,;:!?)]’”%` or after `([“‘` (entity spellings decoded). An explicit
-  closed set, used only for the lint, never for normalization. Fix: delete the
-  run. A same-line space is the opt-out.
-- `redundant-space-literal`: `{ " " }` facing a rendering newline run. Fix:
-  delete the literal when a source sibling lies beyond it (the run keeps one
-  space), else delete the run; beside punctuation, keep the literal and delete
-  the run. Every fix reproduces the old rule's output at that boundary.
+- Both lints concern a *layout run*: it renders a space and every part of it
+  contains a line break (a same-line space anywhere in the run is authored and
+  never flagged). Facing a string literal whose value has a space on that
+  side (`{ " " }`, `{ " and " }`; also as the first/last node of an
+  `if`/`for`/`switch` body, branches not evaluated) it is
+  `redundant-space-literal`; before
+  `.,;:!?)]’”%` or after `([“‘` (entities decoded) it is
+  `punctuation-line-break` — an explicit closed set used only by the lint,
+  never by normalization. The fix deletes the run, so an author's `{ " " }` is
+  kept and fixes never cascade.
+- `Finding.Migrate`: every part is a line break at a Text edge, which v0.4
+  dropped; a line break inside one Text always rendered a space. `gsx fix
+  whitespace` applies only Migrate findings, so it restores v0.4's output
+  exactly (pinned against an in-test port of the v0.4 rule); the editor offers
+  every fix.
 - Findings are computed on the pristine parse (cached with it) and reported
   only for generated packages. `internal/wsfix` (parse → Lint → apply until
   none) backs `gsx fix whitespace` and the LSP quick fixes.
 - Limitation: markup nested inside a Go expression (`{ f(<p>…</p>) }`) is split
   only by codegen and is not linted.
-- EOS (674 files, pre-upgrade sources): 30 + 13 findings in 26 files, no false
-  positives; all 36 changed generated literals equal v0.4.5's output bytes.
+- EOS (674 files, pre-upgrade sources): `gsx fix whitespace` makes 61 fixes in
+  33 files; all 55 changed generated spans equal v0.4.5's output bytes.

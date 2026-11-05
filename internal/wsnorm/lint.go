@@ -18,8 +18,8 @@ const (
 	// punctuation or after opening punctuation. Usually layout the author (or
 	// an earlier gsx fmt) never meant as a space.
 	PunctuationLineBreak FindingKind = iota + 1
-	// RedundantSpaceLiteral: { " " } beside a line break that already renders
-	// a space, so the two render two spaces.
+	// RedundantSpaceLiteral: a string literal with a space at its edge
+	// ({ " " }, { " and " }) beside a line break that renders another.
 	RedundantSpaceLiteral
 )
 
@@ -30,6 +30,12 @@ type Finding struct {
 	Pos, End token.Pos
 	Punct    rune // the punctuation, for PunctuationLineBreak
 	Edits    []Edit
+	// Migrate reports that the pre-v0.5 rule rendered nothing for this run
+	// (every part was a line break at a Text edge), so Edits restore exactly
+	// the output that rule produced. `gsx fix whitespace` applies only these;
+	// the others (a line break inside one text, which always rendered a space)
+	// are still worth a look in the editor but would change existing output.
+	Migrate bool
 }
 
 // Edit replaces the source bytes [Pos, End) with New.
@@ -41,7 +47,7 @@ type Edit struct {
 // Message describes the finding.
 func (f Finding) Message() string {
 	if f.Kind == RedundantSpaceLiteral {
-		return `{ " " } beside a line break renders two spaces`
+		return "line break renders a second space beside this string's space"
 	}
 	return "line break renders a space " + punctSide(f.Punct) + " " + strconv.QuoteRune(f.Punct)
 }
@@ -49,7 +55,7 @@ func (f Finding) Message() string {
 // Help says how to fix it.
 func (f Finding) Help() string {
 	if f.Kind == RedundantSpaceLiteral {
-		return `remove { " " }: the line break already renders a space`
+		return "join the line break: the string already supplies the space"
 	}
 	return "join the lines to keep the punctuation attached; write the space on the same line if it is intended"
 }
@@ -71,41 +77,66 @@ func punctSide(r rune) string {
 // values must still equal their source spans. It walks exactly the lists
 // Normalize processes and judges each run with the same scanner, so a finding
 // is always about whitespace Normalize renders.
+//
+// Both lints concern a layout run: one that renders a space although every
+// part of it is a line break plus indentation. A part without a line break is
+// a space the author wrote on the line, which is never flagged. A layout run
+// facing { " " } is redundant-space-literal; one facing punctuation is
+// punctuation-line-break. Either way the fix deletes the run, which keeps an
+// author's { " " } and never cascades.
 func Lint(f *ast.File) []Finding {
 	var out []Finding
 	w := walker{region: func(nodes []ast.Markup, start, end int) {
 		scanRegion(nodes, start, end, func(*ast.Text, string) {}, func(r *Run) {
-			if !r.Renders || !r.Newline {
+			if !r.Renders || !layoutRun(r) {
 				return
 			}
-			prevLit := r.Prev == "" && isSpaceLiteral(r.PrevNode)
-			nextLit := r.Next == "" && isSpaceLiteral(r.NextNode)
-			punct, isPunct := rune(0), false
-			if p := firstRune(r.Next); r.Next != "" && strings.ContainsRune(closingPunct, p) {
-				punct, isPunct = p, true
-			} else if p := lastRune(r.Prev); r.Prev != "" && strings.ContainsRune(openingPunct, p) {
-				punct, isPunct = p, true
+			finding := Finding{Edits: deleteRun(r), Migrate: oldRuleDropped(r)}
+			finding.Pos, finding.End = runRange(r)
+			var lit ast.Markup
+			if r.Prev == "" {
+				lit = facingLiteral(r.PrevNode, false)
+			}
+			if lit == nil && r.Next == "" {
+				lit = facingLiteral(r.NextNode, true)
 			}
 			switch {
-			case isPunct && (prevLit || nextLit):
-				// The literal is the author's explicit space beside the
-				// punctuation; only the line break is extra.
-				lit := r.PrevIndex
-				if nextLit {
-					lit = r.NextIndex
-				}
-				out = append(out, Finding{Kind: RedundantSpaceLiteral, Pos: nodes[lit].Pos(), End: nodes[lit].End(), Edits: deleteRun(r)})
-			case isPunct:
-				out = append(out, punctFinding(r, punct))
-			case prevLit:
-				out = append(out, spaceFinding(nodes, r, r.PrevIndex, -1))
-			case nextLit:
-				out = append(out, spaceFinding(nodes, r, r.NextIndex, 1))
+			case lit != nil:
+				finding.Kind, finding.Pos, finding.End = RedundantSpaceLiteral, lit.Pos(), lit.End()
+			case r.Next != "" && strings.ContainsRune(closingPunct, firstRune(r.Next)):
+				finding.Kind, finding.Punct = PunctuationLineBreak, firstRune(r.Next)
+			case r.Prev != "" && strings.ContainsRune(openingPunct, lastRune(r.Prev)):
+				finding.Kind, finding.Punct = PunctuationLineBreak, lastRune(r.Prev)
+			default:
+				return
 			}
+			out = append(out, finding)
 		})
 	}}
 	w.file(f)
 	return out
+}
+
+// layoutRun reports that every part of r contains a line break.
+func layoutRun(r *Run) bool {
+	for _, p := range r.Parts {
+		if !strings.ContainsAny(p.Text.Value[p.Start:p.End], "\n\r") {
+			return false
+		}
+	}
+	return true
+}
+
+// oldRuleDropped reports that the pre-v0.5 rule rendered nothing for the
+// layout run r: it dropped a line-break run at a Text's edge (or a whole
+// whitespace-only Text) and kept one inside a Text as a space.
+func oldRuleDropped(r *Run) bool {
+	for _, p := range r.Parts {
+		if p.Start != 0 && p.End != len(p.Text.Value) {
+			return false
+		}
+	}
+	return true
 }
 
 func runRange(r *Run) (token.Pos, token.Pos) {
@@ -121,48 +152,65 @@ func deleteRun(r *Run) []Edit {
 	return edits
 }
 
-func punctFinding(r *Run, p rune) Finding {
-	pos, end := runRange(r)
-	return Finding{Kind: PunctuationLineBreak, Pos: pos, End: end, Punct: p, Edits: deleteRun(r)}
-}
-
-// spaceFinding reports the { " " } at nodes[i] beside run r (dir is the
-// literal's side of the run). Deleting the literal keeps the run's own space
-// when another source sibling sits beyond the literal; at a list edge the
-// run would then render nothing, so the run is deleted instead.
-func spaceFinding(nodes []ast.Markup, r *Run, i, dir int) Finding {
-	lit := nodes[i]
-	f := Finding{Kind: RedundantSpaceLiteral, Pos: lit.Pos(), End: lit.End()}
-	if hasSiblingBeyond(nodes, i, dir) {
-		f.Edits = []Edit{{Pos: lit.Pos(), End: lit.End()}}
-	} else {
-		f.Edits = deleteRun(r)
+// facingLiteral returns the spaced literal that renders right at the boundary n
+// presents to a run: n itself, or, when n is an if/for/switch block, a literal
+// that is the first (leading) or last node of one of its bodies — the block's
+// braces are syntax, so that literal touches the run whenever its branch
+// renders. Branches are not evaluated: any body with such a literal counts.
+func facingLiteral(n ast.Markup, leading bool) ast.Markup {
+	if spacedLiteral(n, leading) {
+		return n
 	}
-	return f
-}
-
-func hasSiblingBeyond(nodes []ast.Markup, i, dir int) bool {
-	for j := i + dir; j >= 0 && j < len(nodes); j += dir {
-		if IsSourceTransparent(nodes[j]) {
-			continue
+	var bodies [][]ast.Markup
+	switch v := n.(type) {
+	case *ast.IfMarkup:
+		bodies = [][]ast.Markup{v.Then, v.Else}
+	case *ast.ForMarkup:
+		bodies = [][]ast.Markup{v.Body}
+	case *ast.SwitchMarkup:
+		for _, c := range v.Cases {
+			bodies = append(bodies, c.Body)
 		}
-		if t, ok := nodes[j].(*ast.Text); ok && strings.Trim(t.Value, " \t\r\n") == "" {
-			continue
-		}
-		return sourceSibling(nodes, j)
 	}
-	return false
+	for _, body := range bodies {
+		if lit := facingLiteral(bodyEdge(body, leading), leading); lit != nil {
+			return lit
+		}
+	}
+	return nil
 }
 
-// isSpaceLiteral reports the { " " } idiom: an interpolation of a Go string
-// literal whose value is exactly one ASCII space.
-func isSpaceLiteral(n ast.Markup) bool {
+// bodyEdge is the first (leading) or last node of body that is not
+// source-transparent, or nil.
+func bodyEdge(body []ast.Markup, leading bool) ast.Markup {
+	for i := range body {
+		j := i
+		if !leading {
+			j = len(body) - 1 - i
+		}
+		if !IsSourceTransparent(body[j]) {
+			return body[j]
+		}
+	}
+	return nil
+}
+
+// spacedLiteral reports an interpolation of a Go string literal whose value
+// starts (leading) or ends with ASCII whitespace: { " " }, { " and " }. That
+// space is data, so a line break beside it renders a second one.
+func spacedLiteral(n ast.Markup, leading bool) bool {
 	v, ok := n.(*ast.Interp)
 	if !ok || len(v.Stages) != 0 || v.Embedded != nil {
 		return false
 	}
 	s, err := strconv.Unquote(strings.TrimSpace(v.Expr))
-	return err == nil && s == " "
+	if err != nil || s == "" {
+		return false
+	}
+	if leading {
+		return isWS(s[0])
+	}
+	return isWS(s[len(s)-1])
 }
 
 // firstRune and lastRune return the rendered edge character of a source word,

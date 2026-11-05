@@ -148,7 +148,7 @@ func whitespaceFixes(uri, path, text string, rng Range, enc encoding) []CodeActi
 		}
 		title := "Join line to keep punctuation attached"
 		if f.Kind == wsnorm.RedundantSpaceLiteral {
-			title = `Remove redundant space`
+			title = `Join line ({ " " } supplies the space)`
 		}
 		actions = append(actions, CodeAction{
 			Title: title,

@@ -14,8 +14,8 @@ func TestRunFixWhitespace(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	path := filepath.Join(dir, "page.gsx")
-	src := "package views\n\ncomponent Page() {\n\t<p>download it\n\t.</p>\n}\n"
-	want := "package views\n\ncomponent Page() {\n\t<p>download it.</p>\n}\n"
+	src := "package views\n\ncomponent Page() {\n\t<p>download <a>it</a>\n\t.</p>\n}\n"
+	want := "package views\n\ncomponent Page() {\n\t<p>download <a>it</a>.</p>\n}\n"
 	clean := filepath.Join(dir, "clean.gsx")
 	for p, s := range map[string]string{path: src, clean: "package views\n\ncomponent Clean() {\n\t<p>a . b</p>\n}\n"} {
 		if err := os.WriteFile(p, []byte(s), 0o644); err != nil {
@@ -28,7 +28,7 @@ func TestRunFixWhitespace(t *testing.T) {
 		t.Fatalf("-l: code %d, out %q, err %q", code, out, errb)
 	}
 	code, out, _ = runCapture(t, []string{"-C", dir, "fix", "whitespace", "-d"})
-	if code != 1 || !strings.Contains(out, "-\t<p>download it\n") || !strings.Contains(out, "+\t<p>download it.</p>\n") {
+	if code != 1 || !strings.Contains(out, "-\t<p>download <a>it</a>\n") || !strings.Contains(out, "+\t<p>download <a>it</a>.</p>\n") {
 		t.Fatalf("-d: code %d, out:\n%s", code, out)
 	}
 	if got, _ := os.ReadFile(path); string(got) != src {

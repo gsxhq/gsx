@@ -437,11 +437,12 @@ func TestCodeActionWhitespaceFixes(t *testing.T) {
 	}
 
 	actions = codeActionsInRange(t, uri, src, []string{"quickfix"}, nilAnalyzer{}, at(5))
-	if len(actions) != 1 || actions[0].Title != "Remove redundant space" {
+	if len(actions) != 1 || actions[0].Title != `Join line ({ " " } supplies the space)` {
 		t.Fatalf("space actions = %+v", actions)
 	}
-	if got := actions[0].Edit.Changes[uri]; len(got) != 1 || got[0].Range.Start != (Position{Line: 5, Character: 15}) {
-		t.Fatalf("space edits = %+v", got)
+	wantSpace := TextEdit{Range: Range{Start: Position{Line: 5, Character: 22}, End: Position{Line: 6, Character: 1}}}
+	if got := actions[0].Edit.Changes[uri]; len(got) != 1 || got[0] != wantSpace {
+		t.Fatalf("space edits = %+v, want %+v", got, wantSpace)
 	}
 
 	if got := codeActionsInRange(t, uri, src, []string{"quickfix"}, nilAnalyzer{}, at(0)); len(got) != 0 {
