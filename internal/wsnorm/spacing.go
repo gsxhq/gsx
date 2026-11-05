@@ -83,6 +83,13 @@ func (s Spacing) NeedsProseSpace(nodes []ast.Markup, i, dir int) (int, bool) {
 	return j, true
 }
 
+// LineBreakPreservesSpace reports whether replacing an authored inline ASCII
+// space with a newline preserves normalized output. An existing rendered gap
+// satisfies newline spacing, so an extra explicit space beside it cannot wrap.
+func LineBreakPreservesSpace(left, right string) bool {
+	return textEdge(left, false).Kind != EdgeSpace && textEdge(right, true).Kind != EdgeSpace
+}
+
 // scan computes the edge that nodes[from], nodes[from+dir], … present at the
 // boundary they face: the first child that renders something decides it,
 // except that a child which may render nothing (Edge.Optional) is combined

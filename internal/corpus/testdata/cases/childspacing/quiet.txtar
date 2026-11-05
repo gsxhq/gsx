@@ -1,4 +1,4 @@
-Joined punctuation, explicit spaces, layout boundaries and preserved contexts
+Authored punctuation spacing, explicit spaces, layout boundaries and preserved contexts
 remain quiet under automatic prose normalization.
 -- input.gsx --
 package views

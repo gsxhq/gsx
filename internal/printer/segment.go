@@ -229,7 +229,7 @@ func (p *printer) fillParts(nodes []ast.Markup, bonds []bool) []pretty.Doc {
 			}
 			for j, w := range words {
 				if j > 0 {
-					if p.caseBodyBondWord(w) {
+					if p.caseBodyBondWord(w) || !wsnorm.LineBreakPreservesSpace(words[j-1], w) {
 						cur = append(cur, pretty.Text(" ")) // bond: never breakable
 					} else {
 						gap(pretty.Line) // word gap

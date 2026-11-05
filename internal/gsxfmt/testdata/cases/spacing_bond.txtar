@@ -1,6 +1,6 @@
 Joined inline content stays joined even beyond the print width. Prose boundaries
 with source whitespace normalize to one separator and can format canonically.
-Punctuation remains attached; breaks beside block content remain layout only.
+Authored punctuation adjacency remains attached; breaks beside block content remain layout only.
 The shared rule looks through comments and Go blocks across the children list,
 including lists containing block and inline segments.
 

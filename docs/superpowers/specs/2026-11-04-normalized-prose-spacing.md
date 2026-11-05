@@ -11,10 +11,10 @@ HTML emission, implicit subtree dedenting, CSS analysis, or runtime word parsing
 1. Whitespace-only Text containing CR/LF is layout and disappears. Inline
    whitespace-only Text without a newline normalizes to one space.
 2. Internal ASCII whitespace in substantive Text collapses to one space,
-   including newline-bearing runs. Punctuation is ordinary prose content and
-   does not suppress an authored separator. Entity spelling and explicit data
-   stay intact. Splitting a text run with an interpolation must not change
-   this spacing rule.
+   including newline-bearing runs unless an adjacent decoded edge already
+   renders a gap. Punctuation is ordinary prose content and does not suppress
+   an authored separator. Entity spelling and explicit data stay intact.
+   Splitting a text run with an interpolation must not change this rule.
 3. At a substantive Text's leading/trailing edge, an authored inline space stays
    one space. An authored newline becomes one space only when structural edge
    analysis finds a feasible prose boundary requiring separation.
@@ -65,7 +65,9 @@ and `{value}` followed by a prose newline and `%` retain a separator. This
 matches ordinary HTML prose spacing without emitting layout-only indentation.
 The normalizer never guesses whether a symbol should be a typographic prefix
 or suffix. The formatter may wrap an authored prose space before punctuation
-as long as normalization preserves that separator.
+as long as normalization preserves that separator. An extra inline ASCII space
+beside an existing entity/Unicode gap remains unbreakable: the existing gap
+satisfies newline inference, while explicit inline whitespace remains data.
 
 ## Required examples
 

@@ -60,7 +60,9 @@ GSX normalizes source whitespace to keep rendered HTML compact:
 - Explicit spaces override inference. Inline spaces at text edges and in HTML
   content normalize to one space; expression values such as `{ " " }`,
   `{ "  " }` and nonbreaking spaces
-  keep their data, even next to punctuation.
+  keep their data, even next to punctuation. An existing rendered gap, including
+  a nonbreaking space, satisfies newline spacing; an extra authored inline space
+  beside it remains explicit.
 
 ```gsx
 <p>Hello

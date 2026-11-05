@@ -1,4 +1,4 @@
-Branch boundaries retain feasible prose outcomes and keep punctuation attached.
+Branch boundaries retain feasible prose outcomes and preserve authored punctuation attachment.
 Normalization supplies required source separators without spacing warnings.
 -- input.gsx --
 package views

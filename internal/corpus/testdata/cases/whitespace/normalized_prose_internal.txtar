@@ -30,7 +30,7 @@ component Page(value int) {
 Page(42)
 -- diagnostics.golden --
 -- render.golden --
-<main><p>42 %</p><p>42 %</p><p>Hello !</p><p>( word</p><p>&lpar; word</p><p>word …</p><p>word ...</p><p>word &hellip;</p><p>42 &#37;</p><p>a&nbsp; b</p><p>a &nbsp;b</p><p>a  b</p><p>42 %</p><p>42
+<main><p>42 %</p><p>42 %</p><p>Hello !</p><p>( word</p><p>&lpar; word</p><p>word …</p><p>word ...</p><p>word &hellip;</p><p>42 &#37;</p><p>a&nbsp;b</p><p>a&nbsp;b</p><p>a b</p><p>42 %</p><p>42
  %</p><pre>42
 		%</pre><p>Click <button>here</button></p><p>Read <label>label</label></p><p>Read <output>value</output></p><p>Read <map>value</map></p><p>Click<input></p><button>A</button><button>B</button></main>
 -- generated.x.go.golden --
@@ -73,11 +73,11 @@ func Page(value int) _gsxrt.Node {
 //line input.gsx:12:15
 		_gsxgw.S("<p>42 &#37;</p>")
 //line input.gsx:13:12
-		_gsxgw.S("<p>a&nbsp; b</p>")
+		_gsxgw.S("<p>a&nbsp;b</p>")
 //line input.gsx:14:8
-		_gsxgw.S("<p>a &nbsp;b</p>")
+		_gsxgw.S("<p>a&nbsp;b</p>")
 //line input.gsx:15:14
-		_gsxgw.S("<p>a\u00a0 b</p>")
+		_gsxgw.S("<p>a\u00a0b</p>")
 //line input.gsx:16:8
 		_gsxgw.S("<p>42 %</p>")
 //line input.gsx:16:19
