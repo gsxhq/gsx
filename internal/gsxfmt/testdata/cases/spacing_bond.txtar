@@ -104,8 +104,8 @@ component IfBlock(ok bool) {
 
 component LineBreaks() {
 	<p>
-		xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx line one<br/>
-		line two<br/>line three<br/>four
+		xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx line
+		one<br/>line two<br/>line three<br/>four
 	</p>
 }
 
@@ -122,17 +122,15 @@ component AuthorBreaks(n int) {
 
 component LookThroughInBlockList() {
 	<p>
-		<b>x</b>
-		<!-- c --> tail
+		<b>x</b> <!-- c -->
+		tail
 	</p>
 	<div>
-		<div>block</div>
-		here {/* c */}
+		<div>block</div> here {/* c */}
 		<b>after comment</b>
 	</div>
 	<p>
-		<div>block</div>
-		here{{
+		<div>block</div> here{{
 			x := 1
 			_ = x
 		}}<b>after</b>

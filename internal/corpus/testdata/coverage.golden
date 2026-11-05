@@ -1123,6 +1123,8 @@ whitespace/normalized_prose_internal	diag gen render
 whitespace/normalized_prose_root_slots	diag gen render
 whitespace/normalized_prose_rules	diag gen render
 whitespace/pre_nested	diag gen render
+whitespace/source_comment_runs	diag gen render
+whitespace/source_sibling_boundaries	diag gen render
 whitespace/switch_two_arm	diag gen render
 whitespace/unicode_space_text	diag gen render
 xpkg/cross_file_and_component	diag render
@@ -1143,4 +1145,4 @@ xpkg/imported_signature_roles	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 1145 cases (render: 974, error: 133, gen-pinned: 648)
+TOTAL: 1147 cases (render: 976, error: 133, gen-pinned: 650)

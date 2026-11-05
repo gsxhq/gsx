@@ -1,121 +1,86 @@
-# GSX normalized spacing: bounded static contract
+# GSX normalized spacing: source whitespace
 
-**Status:** Implemented; authored-attachment revision passed contract review,
-adversarial render probes and final uncached CI.
+**Status:** Source-based revision in progress following PR review.
 
-Baseline: origin/main JSX normalization; retain ordinary formatter/layout and
-HTML-preserving pre/textarea/raw script/style contexts. Do not implement literal
-HTML emission, implicit subtree dedenting, CSS analysis, or runtime word parsing.
+GSX keeps compact output without guessing typography, CSS layout, component
+output or branch outcomes. Whitespace normalization operates on authored text
+and source boundaries. It does not implement literal HTML emission.
 
-## Four rules
+## Three rules
 
-1. Whitespace-only Text containing CR/LF is layout and disappears. Inline
-   whitespace-only Text without a newline normalizes to one space.
-2. Internal ASCII whitespace in substantive Text collapses to one space,
-   including newline-bearing runs unless an adjacent decoded edge already
-   renders a gap. Punctuation is ordinary prose content and does not suppress
-   an authored separator. Entity spelling and explicit data stay intact.
-   Splitting a text run with an interpolation must not change this rule.
-3. At a substantive Text's leading/trailing edge, an authored inline space stays
-   one space. An authored newline becomes one space only when structural edge
-   analysis finds a feasible prose boundary requiring separation.
-4. Preserve authored attachment: adjacent content remains joined; authored
-   prose whitespace remains a separator even beside punctuation, percent signs,
-   ellipses or opening brackets. Explicit inline spaces and expression values
-   override inference. In particular {" "}, {"  "}, and NBSP retain their data.
+1. A whitespace-only text run containing CR/LF is layout and disappears.
+   This covers indentation between tags or expressions and at list edges.
+   An inline whitespace-only run normalizes to one space.
+2. Every other ASCII whitespace run collapses to one space. Internal text runs
+   and text edges facing any source sibling follow the same rule. A component,
+   image, block element, interpolation or conditional does not change it.
+   Newline indentation at the outer edges of a children list is discarded.
+   Punctuation is ordinary text: adjacency expresses attachment.
+3. Expression values are data and remain untouched. This includes explicit
+   `{" "}`, `{"  "}`, Unicode spaces and whitespace inside string values.
+   Character references retain their source spelling. An ASCII source space
+   beside a nonbreaking space is still its own authored separator.
 
-This is GSX source normalization, not literal browser HTML whitespace semantics.
+The syntax inside component, slot and control-flow braces keeps its existing
+brace-padding trim. Parsing retains text whitespace uniformly; the normalization
+pass decides which source whitespace is layout. Text in pre/textarea subtrees,
+raw script/style bodies, static attributes and expression data keeps its
+existing verbatim behavior.
 
-## Structural edge analysis
+## Boundary behavior
 
-Reuse wsnorm.Spacing with structural edge categories: no output/optional,
-existing space, opaque content, and prose content. Punctuation and unknown
-interpolation text are ordinary prose content. Branch alternatives retain the
-possibility of prose at the boundary. Empty/optional alternatives also expose
-following siblings in the scan direction. No Go conditions, return values,
-classes or CSS are evaluated. Known prose elements use HTML child-rendering
-semantics: the existing text-level set plus button, label, output and transparent
-map expose their child text.
-Empty elements, embedded content, raw/inert content, fallback-only containers,
-value controls and unknown components remain opaque unless a separate rule
-explicitly applies. This is not a CSS display or margin inference.
-The same source classification must apply in the formatter and compiler; sibling
-elements without a substantive Text boundary never acquire a separator.
+Text-edge whitespace faces a sibling based on source structure, regardless of
+what that sibling eventually emits. No HTML element allowlist, branch outcome
+sets, decoded runtime edge categories or CSS heuristics are needed. No separator
+is invented at an adjacent source boundary. Braced/HTML comments and nonrendering Go code are transparent to source
+whitespace: their surrounding Text is normalized as one source stream, without
+changing comment/code content or moving non-whitespace text. Bare line comments
+retain their requirement to occupy a source line. Syntactic brace padding is
+trimmed through transparent comments/code too.
 
-A newline-bearing Text edge receives a gap if ANY feasible prose outcome needs
-it. Existing-space or opaque outcomes alone never require a gap. Branches
-returning '.' and '!' require the same authored separator as branches returning
-words; no punctuation attachment classes are needed.
-
-In syntactic component/slot bodies, the parser must retain a substantive Text
-node's leading source prefix for this decision. It may continue discarding
-layout-only separators between markup nodes, as in the existing baseline;
-explicit space expressions remain the universal override.
-
-Normalization is postorder: normalize child lists, collapse own Text, retain
-raw leading/trailing newline flags for the boundary decision, then insert gaps
-left-to-right. Recheck updated neighboring edges so comments separating two Text
-nodes do not cause duplicate inferred spaces. Added spaces become ordinary inline
-spaces, so a second normalization leaves them unchanged.
-
-## Authored attachment
-
-No punctuation character suppresses a prose separator. The source
-expresses attachment by adjacency: `{value}%` stays joined, while `{value} %`
-and `{value}` followed by a prose newline and `%` retain a separator. This
-matches ordinary HTML prose spacing without emitting layout-only indentation.
-The normalizer never guesses whether a symbol should be a typographic prefix
-or suffix. The formatter may wrap an authored prose space before punctuation
-as long as normalization preserves that separator. An extra inline ASCII space
-beside an existing entity/Unicode gap remains unbreakable: the existing gap
-satisfies newline inference, while explicit inline whitespace remains data.
-
-## Required examples
-
-| Source boundary | Result |
+| Source | Output |
 | --- | --- |
 | Hello newline <b>world</b> | Hello <b>world</b> |
+| Hello newline <Link>world</Link> | Hello followed by a space and Link output |
+| Read newline <img/> newline more | Read <img> more |
 | <span>A</span> newline <span>B</span> | <span>A</span><span>B</span> |
 | {value} newline % | {value} % |
 | {value}% | {value}% |
-| {value} inline-space % | {value} % |
-| {value}{" "} newline % | {value} % |
-| Hello newline {name} | Hello {name} |
-| {name} newline world | {name} world |
-| {name} newline . / ... / U+2026 | separator before punctuation |
-| Hello newline if branches '.' or '!' | separator in both branches |
-| Hello newline if branches word or explicit-leading-space word | one inferred source gap; explicit branch space remains additional data |
-| Hello newline comment newline world | one inferred gap, not two |
-| preserve/raw subtree | baseline verbatim contract |
+| Hello newline ! | Hello ! |
+| « newline Bonjour newline » | « Bonjour » |
+| Hello newline comment newline world | Hello world |
+| a&nbsp; newline b | a&nbsp; b |
+| {value}{"  "} newline % | value followed by three spaces and % |
 
-## Deliberate static limitation
+A source separator remains even if an expression or conditional emits nothing,
+just as an authored inline source space does. Authors put a separator inside a
+branch when it should appear only with that branch. No Go conditions or values
+are evaluated to adjust whitespace.
 
-Inference belongs to authored source Text, like writing an inline source space.
-It is not conditional on what a dynamic expression happens to render. Example:
+## Formatter
 
-    Hello
-    { if ok { <b>world</b> } }!
+The formatter uses the same source boundary rule. It can wrap every internal
+ASCII space because a newline preserves that separator, including beside
+punctuation or nonbreaking spaces. It must not introduce whitespace where text
+was directly adjacent to a sibling, whatever the sibling's tag or expression.
+Layout-only inter-tag/expressions gaps remain safe formatting boundaries.
 
-The feasible prose branch requires a source gap. It normalizes like
-`Hello { if ok { <b>world</b> } }!`, hence false may emit `Hello !`. This is
-intentional bounded static semantics. Likewise a mixed prose/already-spaced
-branch may render two spaces, because explicit branch whitespace is data and
-cannot be deleted. Unknown runtime strings are not inspected to adjust spacing.
-Authors requiring branch-sensitive spacing put the explicit separator in the
-branch and keep the external boundary adjacent. No runtime HTML parser, writer
-buffering, generated loop-first-item state, or Go-value speculation is justified.
+Keep canonical indentation and ordinary layout. Formatting must preserve exact
+normalized text and structure and be idempotent. No source-column freezing,
+implicit subtree dedenting or spacing annotations.
 
-## Implementation and validation
+## Validation
 
-- Extend shared wsnorm edge analysis, not independent lint/formatter heuristics.
-- Update normalizeMarkup to preserve required Text-edge gaps using that analysis.
-- Retire diagnostics for gaps the normalizer now supplies; do not retain warnings
-  merely because the original source included a newline.
-- Preserve formatter NoSpace/word-gap bonds, allowing canonical indent/reflow;
-  normalize(parse(fmt(source))) must equal normalize(parse(source)).
-- Pin direct rule table, all branch combinations, optional if/loop/switch scans,
-  explicit string spaces, Unicode/NBSP, preserve contexts, deferred embedded Go
-  element splits, slots/fragments, and named/custom component boundaries.
-- Exact corpus outputs, normalization idempotence, formatter idempotence, and real
-  CLI render-before/after probes. Existing module-backed fixture tables should
-  be extended rather than opening additional expensive modules per test row.
+- Pin component, void element, unknown tag, block, interpolation and branch
+  boundaries without inspecting their output.
+- Cover text on either side, root/slots/control-flow, comments/Go code,
+  whitespace-only siblings, punctuation, Unicode/entities and explicit data.
+- Regenerate canonical semantic and formatter archives; inspect every changed
+  output against authored source. Do not hand-edit generated files.
+- Run focused normalization/parser/formatter tests and corpus property checks,
+  independent actual CLI render/fmt probes, lint, docs build and final uncached
+  `make ci` on Go 1.27.1. Retain exact render golden comparisons.
+
+The obsolete `child-element-spacing` diagnostic remains retired because source
+prose separators are now preserved without output classification. No grammar
+syntax is added. EOS, one-learning and gsxui remain unchanged.

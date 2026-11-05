@@ -71,3 +71,23 @@ Revision review evidence:
   the existing-gap correction, including both modules, build/vet/tests,
   formatting, examples and type-bundle parity. Log:
   `/tmp/gsx-authored-spacing-final-ci.log`.
+
+## Source-whitespace revision after Claude review
+
+The user requested fixing line breaks that still silently join text beside
+components and images. The approved direction is source normalization without
+an element allowlist or branch-output analysis:
+
+1. Capture raw text whitespace uniformly in parser body contexts, retaining
+   existing syntactic brace-padding trim; move layout decisions to wsnorm.
+2. Normalize text-edge whitespace facing any source sibling. Remove branch and
+   element-output classification, decoded-gap exceptions and formatter guards
+   that make newline and inline prose separators differ. Keep expression data
+   verbatim and layout-only whitespace absent.
+3. Update canonical cases for components/images/block/empty/branch boundaries,
+   explicit space data and root/slots; review every generated delta separately.
+4. Update published guide, CLI, changelog and roadmap around source rules.
+5. Obtain independent adversarial render probes and contract review, run focused
+   tests, lint, docs build and final uncached CI, then push the existing PR.
+
+Prior validation records above cover prior revisions, not this revision.

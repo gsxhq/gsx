@@ -78,7 +78,8 @@ GSX normalizes source whitespace to keep rendered HTML compact:
 These preserve a separator after each `Hello`, on both sides of the image,
 produce adjacent spans, and produce `42 %` when `value` is 42. The tag or
 component beside text does not change the spacing rule. Neither do punctuation,
-CSS classes, interpolation values or conditional output.
+CSS classes, interpolation values or conditional output. Braced comments, HTML
+comments and nonrendering Go blocks do not split a source whitespace run.
 
 Write `<p>{value}%</p>` to produce `42%`. The same distinction applies to
 `Hello <em>world</em>` versus `Hello<em>world</em>`: authored whitespace separates

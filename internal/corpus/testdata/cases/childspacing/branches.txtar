@@ -1,4 +1,5 @@
-Branch boundaries retain feasible prose outcomes and preserve authored punctuation attachment.
+Source separators remain independent of branch output; source adjacency
+preserves punctuation attachment.
 Normalization supplies required source separators without spacing warnings.
 -- input.gsx --
 package views
@@ -38,4 +39,4 @@ component C(name string, n int) {
 C("X", 3)
 -- diagnostics.golden --
 -- render.golden --
-<p id="region">Loading <?start name="feed"><b>X</b><?end></p><p id="f-literal">Hi X!</p><p id="tuple">Name: X</p><p id="switch-no-default">Total <b>3</b></p><p id="nbsp">foo&nbsp;<b>x</b>&nbsp;bar</p>
+<p id="region">Loading <?start name="feed"><b>X</b><?end></p><p id="f-literal">Hi X!</p><p id="tuple">Name: X</p><p id="switch-no-default">Total <b>3</b></p><p id="nbsp">foo&nbsp; <b>x</b> &nbsp;bar</p>
