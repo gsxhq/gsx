@@ -427,7 +427,7 @@ func TestCodeActionWhitespaceFixes(t *testing.T) {
 	}
 
 	actions := codeActionsInRange(t, uri, src, []string{"quickfix"}, nilAnalyzer{}, at(4))
-	if len(actions) != 1 || actions[0].Title != "Join line to keep punctuation attached" {
+	if len(actions) != 1 || actions[0].Title != "Remove space to keep punctuation attached" {
 		t.Fatalf("punctuation actions = %+v", actions)
 	}
 	edits := actions[0].Edit.Changes[uri]
@@ -437,7 +437,7 @@ func TestCodeActionWhitespaceFixes(t *testing.T) {
 	}
 
 	actions = codeActionsInRange(t, uri, src, []string{"quickfix"}, nilAnalyzer{}, at(5))
-	if len(actions) != 1 || actions[0].Title != `Join line ({ " " } supplies the space)` {
+	if len(actions) != 1 || actions[0].Title != "Remove space (the string supplies it)" {
 		t.Fatalf("space actions = %+v", actions)
 	}
 	wantSpace := TextEdit{Range: Range{Start: Position{Line: 5, Character: 22}, End: Position{Line: 6, Character: 1}}}

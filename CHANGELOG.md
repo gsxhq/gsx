@@ -16,11 +16,14 @@ syntax or APIs; a patch bump does not. See
   punctuation on its own line (`⏎. `, `⏎, `) because that newline rendered
   nothing, and a `{ " " }` beside a newline now renders two spaces. Run
   `gsx fix whitespace` **before** `gsx fmt` to keep the old output there.
-- **New lints `punctuation-line-break` and `redundant-space-literal`** flag a
-  line break rendering a space before punctuation or beside a string that
-  already has one (`{ " " }`), with
-  editor quick fixes. `gsx fix whitespace` applies the fixes where v0.4
-  rendered no space, restoring exactly its output there.
+- **New lints `punctuation-space` and `redundant-space-literal`** flag a space
+  rendering before closing (or after opening) punctuation, or beside a string
+  that already has one (`{ " " }`), from a line break or a same-line space,
+  with editor quick fixes. `gsx fix whitespace` applies the fixes where v0.4
+  rendered no space, restoring exactly its output there; `-all` applies every
+  fix.
+- **`gsx fmt` keeps a one-line `if`/`for` in text on one line**, like an inline
+  element, instead of breaking it open when the line is too long.
 - **`gsx fmt -d` and `gsx fix whitespace -d` print real hunks** with three
   lines of context instead of replacing the whole file.
 

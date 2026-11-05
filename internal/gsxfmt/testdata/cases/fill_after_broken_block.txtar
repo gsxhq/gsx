@@ -9,7 +9,9 @@ package p
 
 component AfterBrokenBlock(ok bool) {
 	<p>
-		lorem ipsum{ if ok { <b>yes, and the bold words in this block run long enough to overflow</b> } } xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx more.
+		lorem ipsum{ if ok {
+			<b>yes, and the bold words in this block run long enough to overflow</b>
+		} } xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx more.
 	</p>
 }
 

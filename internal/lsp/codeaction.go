@@ -123,7 +123,7 @@ func (s *Server) handleCodeAction(f frame) error {
 	return s.reply(f.ID, actions)
 }
 
-// whitespaceFixes offers one quick fix per punctuation-line-break or
+// whitespaceFixes offers one quick fix per punctuation-space or
 // redundant-space-literal finding in the current buffer that overlaps rng. The
 // findings are recomputed from the buffer itself (they are syntactic), so a
 // fix always matches the text it edits; an unparseable buffer offers none.
@@ -146,9 +146,9 @@ func whitespaceFixes(uri, path, text string, rng Range, enc encoding) []CodeActi
 				NewText: e.New,
 			})
 		}
-		title := "Join line to keep punctuation attached"
+		title := "Remove space to keep punctuation attached"
 		if f.Kind == wsnorm.RedundantSpaceLiteral {
-			title = `Join line ({ " " } supplies the space)`
+			title = "Remove space (the string supplies it)"
 		}
 		actions = append(actions, CodeAction{
 			Title: title,

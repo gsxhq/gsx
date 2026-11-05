@@ -61,8 +61,8 @@ C("X", Badge())
 		<b>x</b>
 	</pre>
 -- diagnostics.golden --
-32:33: warning: line break renders a space before '.'
-33:11: warning: line break renders a space after '('
-34:17: warning: line break renders a space before ')'
-35:12: warning: line break renders a space after '“'
-36:11: warning: line break renders a space before '”'
+32:33: warning: a space renders before '.'
+33:11: warning: a space renders after '('
+34:17: warning: a space renders before ')'
+35:12: warning: a space renders after '“'
+36:11: warning: a space renders before '”'

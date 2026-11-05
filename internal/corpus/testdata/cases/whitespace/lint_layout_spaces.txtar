@@ -1,7 +1,7 @@
-punctuation-line-break flags a line break that renders a space before closing
-or after opening punctuation; redundant-space-literal flags { " " } beside a
-line break that already renders one. Inline spaces, layout between tags and
-preserved text are not findings.
+punctuation-space flags whitespace (a line break or a same-line space) that
+renders a space before closing or after opening punctuation;
+redundant-space-literal flags { " " } beside whitespace that renders another.
+Layout between tags and preserved text are not findings.
 -- input.gsx --
 package views
 
@@ -33,14 +33,15 @@ component Page(org string, n int) {
 -- invoke --
 Page("Acme", 3)
 -- diagnostics.golden --
-7:19: warning: line break renders a space before ':'
-8:21: warning: line break renders a space before ','
-11:16: warning: line break renders a space before '.'
-13:6: warning: line break renders a space after '('
-14:15: warning: line break renders a space before ')'
-16:12: warning: line break renders a space before '’'
-18:16: warning: line break renders a second space beside this string's space
-20:5: warning: line break renders a second space beside this string's space
+7:19: warning: a space renders before ':'
+8:21: warning: a space renders before ','
+11:16: warning: a space renders before '.'
+13:6: warning: a space renders after '('
+14:15: warning: a space renders before ')'
+16:12: warning: a space renders before '’'
+18:16: warning: a second space renders beside this string's space
+20:5: warning: a second space renders beside this string's space
+22:6: warning: a space renders before '.'
 -- render.golden --
 <p><b>3</b> : <b>3</b> , <b>3</b></p><p>download it .</p><p>( 3 groups )</p><p>Acme ’s Trash</p><p>to Acme.  Set your password.</p><p>  Hello</p><p>a . b c</p><p><b>a</b> <b>b</b></p><pre>a
 .</pre>

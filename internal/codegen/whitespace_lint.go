@@ -9,7 +9,7 @@ import (
 )
 
 // reportWhitespaceLint adds the parse-time whitespace findings to bag as
-// punctuation-line-break / redundant-space-literal warnings; the lint policy
+// punctuation-space / redundant-space-literal warnings; the lint policy
 // applied to the bag sets their final level.
 func reportWhitespaceLint(byPath map[string][]wsnorm.Finding, fset *token.FileSet, bag *diag.Bag) {
 	paths := make([]string, 0, len(byPath))
@@ -19,7 +19,7 @@ func reportWhitespaceLint(byPath map[string][]wsnorm.Finding, fset *token.FileSe
 	sort.Strings(paths)
 	for _, path := range paths {
 		for _, f := range byPath[path] {
-			code := diag.CodePunctuationLineBreak
+			code := diag.CodePunctuationSpace
 			if f.Kind == wsnorm.RedundantSpaceLiteral {
 				code = diag.CodeRedundantSpaceLiteral
 			}
