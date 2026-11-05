@@ -68,12 +68,12 @@ func glued(left, right ast.Markup) bool {
 func spacingBonds(nodes []ast.Markup) []bool {
 	bonds := make([]bool, len(nodes))
 	for i := range nodes {
-		if j, loses := wsnorm.NeedsSourceSpace(nodes, i, 1); loses {
+		if j, loses := wsnorm.TextBoundarySibling(nodes, i, 1); loses {
 			for k := i + 1; k <= j; k++ {
 				bonds[k] = true
 			}
 		}
-		if j, loses := wsnorm.NeedsSourceSpace(nodes, i, -1); loses {
+		if j, loses := wsnorm.TextBoundarySibling(nodes, i, -1); loses {
 			for k := j + 1; k <= i; k++ {
 				bonds[k] = true
 			}

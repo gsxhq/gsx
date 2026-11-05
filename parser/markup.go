@@ -409,45 +409,55 @@ func (p *parser) parseControlBody() ([]ast.Markup, error) {
 }
 
 // trimBodyEdges strips padding immediately inside syntactic markup-body
-// braces (component, slot and control-flow): the leading whitespace of the first node and the trailing whitespace
-// of the last node, when those nodes are Text. This mirrors how gsx trims the
-// interior of `{ expr }` and `{{ code }}`. Interior whitespace between nodes is
-// left for normalization. An emptied edge Text node is dropped.
+// braces (component, slot and control-flow), looking through transparent source
+// comments and Go blocks. Interior whitespace remains for normalization; only
+// emptied edge Text nodes disappear. This mirrors `{ expr }` and `{{ code }}`.
 func trimBodyEdges(nodes []ast.Markup) []ast.Markup {
-	if len(nodes) > 0 {
-		if t, ok := nodes[0].(*ast.Text); ok {
-			trimmed := strings.TrimLeft(t.Value, " \t\r\n")
-			if t.Pos().IsValid() {
-				ast.SetSpan(t, t.Pos()+token.Pos(len(t.Value)-len(trimmed)), t.End())
+	for _, dir := range []int{1, -1} {
+		start := 0
+		if dir < 0 {
+			start = len(nodes) - 1
+		}
+		for i := start; i >= 0 && i < len(nodes); i += dir {
+			if wsnorm.IsSourceTransparent(nodes[i]) {
+				continue
 			}
-			t.Value = trimmed
-			t.LeadingBreak = false
-			if t.Value == "" {
-				nodes = nodes[1:]
+			text, ok := nodes[i].(*ast.Text)
+			if !ok {
+				break
+			}
+			trimmed := strings.TrimLeft(text.Value, " \t\r\n")
+			if dir < 0 {
+				trimmed = strings.TrimRight(text.Value, " \t\r\n")
+			}
+			if text.Pos().IsValid() {
+				n := token.Pos(len(text.Value) - len(trimmed))
+				if dir > 0 {
+					ast.SetSpan(text, text.Pos()+n, text.End())
+				} else {
+					ast.SetSpan(text, text.Pos(), text.End()-n)
+				}
+			}
+			text.Value = trimmed
+			if dir > 0 {
+				text.LeadingBreak = false
+			}
+			if trimmed != "" {
+				break
 			}
 		}
 	}
-	if len(nodes) > 0 {
-		if t, ok := nodes[len(nodes)-1].(*ast.Text); ok {
-			trimmed := strings.TrimRight(t.Value, " \t\r\n")
-			if t.Pos().IsValid() {
-				ast.SetSpan(t, t.Pos(), t.End()-token.Pos(len(t.Value)-len(trimmed)))
-			}
-			t.Value = trimmed
-			if t.Value == "" {
-				nodes = nodes[:len(nodes)-1]
-			}
+	out := nodes[:0]
+	for _, node := range nodes {
+		if text, ok := node.(*ast.Text); ok && text.Value == "" {
+			continue
 		}
+		out = append(out, node)
 	}
-	// A body that trims down to nothing must be represented identically to a
-	// literally-empty `{}` body (nil), not a non-nil empty slice left over from
-	// reslicing — otherwise the two are only render-equivalent, not
-	// structurally equal, and AST-faithfulness comparisons (e.g. fmt idempotence)
-	// see a spurious diff.
-	if len(nodes) == 0 {
+	if len(out) == 0 {
 		return nil
 	}
-	return nodes
+	return out
 }
 
 // parseForMarkup parses `{ for Clause { Body } }`. Cursor at '{'; the caller has

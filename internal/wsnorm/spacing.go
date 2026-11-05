@@ -1,44 +1,34 @@
 package wsnorm
 
-import (
-	"strings"
+import "github.com/gsxhq/gsx/ast"
 
-	"github.com/gsxhq/gsx/ast"
-)
-
-// NeedsSourceSpace reports the sibling facing an unspaced Text edge. Braced comments
-// and Go statements are transparent to source text; every other markup node
-// supplies a boundary regardless of what it eventually renders. An existing
-// normalized source space suffices, including across transparent nodes.
-func NeedsSourceSpace(nodes []ast.Markup, i, dir int) (int, bool) {
-	t, ok := nodes[i].(*ast.Text)
-	if !ok || isAllWhitespace(t.Value) || sourceSpace(t.Value, dir < 0) {
+// TextBoundarySibling reports the source sibling facing a Text node. A text
+// boundary stays bonded during formatting: an added newline can introduce a
+// separator or move the first whitespace across a transparent comment.
+func TextBoundarySibling(nodes []ast.Markup, i, dir int) (int, bool) {
+	if _, ok := nodes[i].(*ast.Text); !ok {
 		return -1, false
 	}
 	for j := i + dir; j >= 0 && j < len(nodes); j += dir {
-		switch v := nodes[j].(type) {
-		case *ast.Comment:
-			// A bare line comment must own its source line; touching text is
-			// rejected separately. It cannot participate in a text fill run.
-			if v.Bare {
-				return -1, false
-			}
+		if IsSourceTransparent(nodes[j]) {
 			continue
-		case *ast.HTMLComment, *ast.GoBlock:
-			continue
-		case *ast.Text:
-			if sourceSpace(v.Value, dir > 0) {
-				return -1, false
-			}
+		}
+		if comment, ok := nodes[j].(*ast.Comment); ok && comment.Bare {
+			return -1, false
 		}
 		return j, true
 	}
 	return -1, false
 }
 
-func sourceSpace(text string, leading bool) bool {
-	if leading {
-		return strings.HasPrefix(text, " ")
+// IsSourceTransparent reports markup that does not divide a source text run.
+// Bare line comments are excluded: they must own a line and cannot touch text.
+func IsSourceTransparent(node ast.Markup) bool {
+	switch v := node.(type) {
+	case *ast.Comment:
+		return !v.Bare
+	case *ast.HTMLComment, *ast.GoBlock:
+		return true
 	}
-	return strings.HasSuffix(text, " ")
+	return false
 }

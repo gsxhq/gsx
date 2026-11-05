@@ -71,3 +71,37 @@ func TestBraceBodiesCaptureInteriorWhitespace(t *testing.T) {
 		}
 	}
 }
+
+func TestBracePaddingAcrossTransparentNodes(t *testing.T) {
+	for _, tc := range []struct{ name, body, want string }{
+		{"component comments", "{/* first */} \n hello \n {/* last */}", "hello"},
+		{"component HTML comments", "<!-- first --> \n hello \n <!-- last -->", "hello"},
+		{"component Go blocks", "{{ _ = 1 }} \n hello \n {{ _ = 2 }}", "hello"},
+		{"slot trailing comment", "<Card content={ <></> hello \n {/* last */} }/>", " hello"},
+		{"control comments", "{ if true { {/* first */} \n hello \n {/* last */} } }", "hello"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			src := "package p\ncomponent C(){ " + tc.body + " }\n"
+			fs := token.NewFileSet()
+			f, err := ParseFile(fs, "test.gsx", src, 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var texts []*ast.Text
+			ast.Inspect(f, func(n ast.Node) bool {
+				if text, ok := n.(*ast.Text); ok {
+					texts = append(texts, text)
+				}
+				return true
+			})
+			if len(texts) != 1 || texts[0].Value != tc.want {
+				t.Fatalf("brace padding survived: %#v", texts)
+			}
+			text := texts[0]
+			file := fs.File(text.Pos())
+			if got := src[file.Offset(text.Pos()):file.Offset(text.End())]; got != tc.want {
+				t.Fatalf("trimmed Text span covers %q, want %q", got, tc.want)
+			}
+		})
+	}
+}

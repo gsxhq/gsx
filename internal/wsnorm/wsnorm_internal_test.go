@@ -1,10 +1,13 @@
 package wsnorm
 
-import "testing"
+import (
+	"testing"
 
-// This file holds white-box tests of normalizeText, wsnorm's unexported
-// per-Text rule — the only reason this package needs an in-package (not
-// wsnorm_test) test file. Everything else lives in wsnorm_test.go as a
+	"github.com/gsxhq/gsx/ast"
+)
+
+// This file tests one-Text source regions directly, requiring an in-package
+// (not wsnorm_test) test file. Everything else lives in wsnorm_test.go as a
 // black-box test of the exported API: parser/markup.go now imports wsnorm
 // (for the shared IsPreserveTag predicate), so an in-package test file that
 // also imported parser (for its .gsx-parsing helper) would create an import
@@ -63,10 +66,8 @@ func TestNormalizeText(t *testing.T) {
 		// Content-only unchanged.
 		{"content only", "hello", "hello", true},
 		{"content with single internal space", "a b", "a b", true},
-		// Empty string: not all-whitespace by our rule? Empty has no newline and is
-		// all-whitespace vacuously; treat as the no-newline all-ws → " ".
-		// (Parser never emits empty Text; documented behavior.)
-		{"empty", "", " ", true},
+		// An empty Text contributes no source bytes and disappears.
+		{"empty", "", "", false},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -94,4 +95,10 @@ func TestNormalizeTextIdempotent(t *testing.T) {
 			t.Fatalf("normalizeText not idempotent: %q → %q → (%q, keep=%v)", in, out, out2, keep2)
 		}
 	}
+}
+
+func normalizeText(value string) (string, bool) {
+	text := &ast.Text{Value: value}
+	normalizeTextRegion([]ast.Markup{text}, false, false)
+	return text.Value, text.Value != ""
 }
