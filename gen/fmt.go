@@ -535,26 +535,6 @@ func gsxFiles(paths []string) ([]string, error) {
 	return out, nil
 }
 
-// unifiedDiff returns a minimal unified diff between the original and formatted
-// bytes of path, with the conventional `--- path.orig` / `+++ path` headers and
-// a single hunk covering the whole file. It is a line-level diff sufficient to
-// see what `gsx fmt -w` would change; it is not a minimal-edit diff.
-func unifiedDiff(path string, a, b []byte) string {
-	aLines := splitLinesKeepEnds(a)
-	bLines := splitLinesKeepEnds(b)
-	var sb strings.Builder
-	fmt.Fprintf(&sb, "--- %s.orig\n", path)
-	fmt.Fprintf(&sb, "+++ %s\n", path)
-	fmt.Fprintf(&sb, "@@ -1,%d +1,%d @@\n", len(aLines), len(bLines))
-	for _, ln := range aLines {
-		writeDiffLine(&sb, '-', ln)
-	}
-	for _, ln := range bLines {
-		writeDiffLine(&sb, '+', ln)
-	}
-	return sb.String()
-}
-
 // splitLinesKeepEnds splits data into lines, each retaining its trailing
 // newline (if any). A trailing newline does not produce a final empty line.
 func splitLinesKeepEnds(data []byte) []string {

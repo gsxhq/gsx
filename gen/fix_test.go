@@ -28,15 +28,15 @@ func TestRunFixWhitespace(t *testing.T) {
 		t.Fatalf("-l: code %d, out %q, err %q", code, out, errb)
 	}
 	code, out, _ = runCapture(t, []string{"-C", dir, "fix", "whitespace", "-d"})
-	if code != 1 || !strings.Contains(out, "-\t<p>download <a>it</a>\n") || !strings.Contains(out, "+\t<p>download <a>it</a>.</p>\n") {
+	if code != 1 || !strings.Contains(out, "@@ -1,6 +1,5 @@\n") || !strings.Contains(out, "-\t<p>download <a>it</a>\n-\t.</p>\n+\t<p>download <a>it</a>.</p>\n") {
 		t.Fatalf("-d: code %d, out:\n%s", code, out)
 	}
 	if got, _ := os.ReadFile(path); string(got) != src {
 		t.Fatalf("-l/-d wrote the file:\n%s", got)
 	}
 
-	if code, _, errb := runCapture(t, []string{"-C", dir, "fix", "whitespace"}); code != 0 || !strings.Contains(errb, "fixed 1 whitespace finding(s) in "+path) {
-		t.Fatalf("write: code %d, err %q", code, errb)
+	if code, out, errb := runCapture(t, []string{"-C", dir, "fix", "whitespace", "-l", "-w"}); code != 0 || strings.TrimSpace(out) != path || !strings.Contains(errb, "fixed 1 whitespace finding(s) in "+path) {
+		t.Fatalf("-l -w: code %d, out %q, err %q", code, out, errb)
 	}
 	if got, _ := os.ReadFile(path); string(got) != want {
 		t.Fatalf("fixed file:\n%s\nwant:\n%s", got, want)

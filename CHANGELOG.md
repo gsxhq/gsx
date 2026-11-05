@@ -21,6 +21,8 @@ syntax or APIs; a patch bump does not. See
   already has one (`{ " " }`), with
   editor quick fixes. `gsx fix whitespace` applies the fixes where v0.4
   rendered no space, restoring exactly its output there.
+- **`gsx fmt -d` and `gsx fix whitespace -d` print real hunks** with three
+  lines of context instead of replacing the whole file.
 
 ## v0.4.6 — 2026-11-03
 
