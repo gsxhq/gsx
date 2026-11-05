@@ -41,40 +41,11 @@ const (
 	EdgeOpaque
 )
 
-// Edge is what a child renders at one edge: its kind and, for content whose
-// text is known statically, the character at that edge (0 otherwise).
-// Optional marks a control-flow block that may render nothing at all (an if
-// branch, a loop with no iterations, a switch with no matching case), so the
-// next sibling may face the boundary instead.
+// Edge classifies what a child renders at one edge. Optional marks a
+// control-flow block that may render nothing, exposing the next sibling.
 type Edge struct {
-	Kind         EdgeKind
-	R            rune
-	Optional     bool
-	contentKinds contentKinds // finite possible content attachment classes
-}
-
-type contentKinds uint8
-
-const (
-	contentOrdinary contentKinds = 1 << iota
-	contentOpening
-	contentAttaching
-)
-
-func (e Edge) contents() contentKinds {
-	if e.Kind != EdgeContent {
-		return 0
-	}
-	if e.contentKinds != 0 {
-		return e.contentKinds
-	}
-	if NoSpaceBoundary(e.R, 0) {
-		return contentOpening
-	}
-	if NoSpaceBoundary(0, e.R) {
-		return contentAttaching
-	}
-	return contentOrdinary
+	Kind     EdgeKind
+	Optional bool
 }
 
 // Spacing decides whether a substantive Text boundary needs a prose separator.
@@ -93,7 +64,7 @@ type Spacing struct {
 // NeedsProseSpace reports an unspaced substantive Text boundary that needs a
 // prose separator when authored whitespace is normalized there. It returns the
 // sibling supplying the prose edge, looking through nonrendering nodes and
-// accounting for every feasible branch. Already-spaced or attaching boundaries
+// accounting for every feasible branch. Already-spaced boundaries
 // need no inferred separator. The formatter also uses this predicate to avoid
 // introducing a separator at a joined source boundary.
 func (s Spacing) NeedsProseSpace(nodes []ast.Markup, i, dir int) (int, bool) {
@@ -109,40 +80,7 @@ func (s Spacing) NeedsProseSpace(nodes []ast.Markup, i, dir int) (int, bool) {
 	if f.Kind != EdgeContent {
 		return -1, false
 	}
-	if dir > 0 {
-		if NoSpaceBoundary(own.R, 0) || f.contents() & ^contentAttaching == 0 {
-			return -1, false
-		}
-	} else {
-		if NoSpaceBoundary(0, own.R) || f.contents() & ^contentOpening == 0 {
-			return -1, false
-		}
-	}
 	return j, true
-}
-
-// NoSpaceBoundary reports whether left followed by right is a boundary where
-// running text never takes a space: after an opening bracket or initial quote
-// (Unicode Ps, Pi), or before a closing bracket, final quote or terminal
-// punctuation (Unicode Pe, Pf, Terminal_Punctuation: . , ; : ! ?), plus
-// percent-family suffix signs and ellipsis marks. There
-// the dropped line break is what the author meant (`</a>` then `.` on the
-// next line). An unknown character (0) never exempts.
-func NoSpaceBoundary(left, right rune) bool {
-	if left != 0 && unicode.In(left, unicode.Ps, unicode.Pi) {
-		return true
-	}
-	return right != 0 && (unicode.In(right, unicode.Pe, unicode.Pf, unicode.Terminal_Punctuation) ||
-		right == '%' || right == '\u066a' || right == '\u2030' || right == '\u2031' || right == '\u2026' || right == '\u2025')
-}
-
-// LineBreakPreservesSpace reports whether replacing an authored inline ASCII
-// space between two text chunks with a newline preserves normalized output.
-// Existing Unicode/entity gaps and punctuation attachment would remove an
-// inferred newline gap, so their explicit space must remain unbreakable.
-func LineBreakPreservesSpace(left, right string) bool {
-	a, b := textEdge(left, false), textEdge(right, true)
-	return a.Kind != EdgeSpace && b.Kind != EdgeSpace && !NoSpaceBoundary(a.R, b.R)
 }
 
 // scan computes the edge that nodes[from], nodes[from+dir], … present at the
@@ -257,23 +195,12 @@ func branches(a, b Edge) Edge {
 
 // combineEdges merges two edges that can each face the boundary (alternative
 // branches, or an optional block and what follows it): the result is inline
-// content when either is, since that rendering loses the space. Contents
-// with different edge characters retain their finite attachment classes even
-// when the exact character becomes unknown. Optional is
-// left for the caller to set.
+// content when either is, since that rendering needs the source separator.
+// Optional is left for the caller to set.
 func combineEdges(a, b Edge) Edge {
 	switch {
-	case a.Kind == EdgeContent && b.Kind == EdgeContent:
-		if a.R != b.R {
-			return Edge{Kind: EdgeContent, contentKinds: a.contents() | b.contents()}
-		}
-		return Edge{Kind: EdgeContent, R: a.R, contentKinds: a.contents() | b.contents()}
-	case a.Kind == EdgeContent:
-		a.Optional = false
-		return a
-	case b.Kind == EdgeContent:
-		b.Optional = false
-		return b
+	case a.Kind == EdgeContent || b.Kind == EdgeContent:
+		return Edge{Kind: EdgeContent}
 	case a.Kind == EdgeOpaque || b.Kind == EdgeOpaque:
 		return Edge{Kind: EdgeOpaque}
 	case a.Kind == EdgeSpace || b.Kind == EdgeSpace:
@@ -282,8 +209,8 @@ func combineEdges(a, b Edge) Edge {
 	return Edge{}
 }
 
-// textEdge classifies normalized static text. Static text renders verbatim,
-// so its character references are decoded to find the edge character.
+// textEdge classifies normalized static text. Character references are decoded
+// to distinguish content from an existing space at the edge.
 func textEdge(s string, leading bool) Edge {
 	return valueEdge(html.UnescapeString(s), leading)
 }
@@ -304,5 +231,5 @@ func valueEdge(s string, leading bool) Edge {
 	if unicode.IsSpace(r) {
 		return Edge{Kind: EdgeSpace}
 	}
-	return Edge{Kind: EdgeContent, R: r}
+	return Edge{Kind: EdgeContent}
 }

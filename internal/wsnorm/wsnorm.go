@@ -194,17 +194,17 @@ func normalizeAttrs(attrs []ast.Attr) {
 	}
 }
 
-// normalizeText applies the per-Text JSX whitespace rule to a single Text value.
+// normalizeText applies the per-Text whitespace rule to a single Text value.
 //
-// Whitespace = ASCII space, tab, '\n', '\r' (per HTML/JSX; Unicode spaces are
-// intentionally not treated as collapsible whitespace).
+// Collapsible whitespace = ASCII space, tab, '\n', '\r'. Unicode spaces
+// remain explicit data.
 //
 //   - If v is ALL whitespace: drop it (keep=false) when it contains a newline
 //     (\n or \r) — cosmetic indentation; otherwise return a single inline space
 //     " " (keep=true).
 //   - Else: split into lead (leading whitespace run), core (the middle) and trail
-//     (trailing whitespace run). Inline internal whitespace becomes one space;
-//     newline-bearing internal runs follow the shared prose attachment rule. The result is core, prefixed with a space iff lead is
+//     (trailing whitespace run). Internal whitespace becomes one space,
+//     regardless of punctuation. The result is core, prefixed with a space iff lead is
 //     non-empty AND contains no newline, and suffixed with a space iff trail is
 //     non-empty AND contains no newline.
 func normalizeText(v string) (out string, keep bool) {
@@ -242,35 +242,21 @@ func normalizeText(v string) (out string, keep bool) {
 	return b.String(), true
 }
 
-// collapseInto preserves original word/entity bytes. Inline whitespace is an
-// authored separator; newline runs infer a separator from decoded edge classes.
+// collapseInto preserves original text/entity bytes and collapses every
+// internal ASCII whitespace run to one separator. Punctuation is ordinary text;
+// attachment is authored by leaving out whitespace.
 func collapseInto(b *strings.Builder, core string) {
-	for start := 0; start < len(core); {
-		end := start
-		for end < len(core) && !isWS(core[end]) {
-			end++
-		}
-		word := core[start:end]
-		b.WriteString(word)
-		gapEnd := end
-		for gapEnd < len(core) && isWS(core[gapEnd]) {
-			gapEnd++
-		}
-		if gapEnd == len(core) {
-			return
-		}
-		needsSpace := true
-		if containsNewline(core[end:gapEnd]) {
-			nextEnd := gapEnd
-			for nextEnd < len(core) && !isWS(core[nextEnd]) {
-				nextEnd++
+	inSpace := false
+	for i := 0; i < len(core); i++ {
+		if isWS(core[i]) {
+			if !inSpace {
+				b.WriteByte(' ')
 			}
-			needsSpace = LineBreakPreservesSpace(word, core[gapEnd:nextEnd])
+			inSpace = true
+			continue
 		}
-		if needsSpace {
-			b.WriteByte(' ')
-		}
-		start = gapEnd
+		b.WriteByte(core[i])
+		inSpace = false
 	}
 }
 

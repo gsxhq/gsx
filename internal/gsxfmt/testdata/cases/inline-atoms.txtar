@@ -51,8 +51,7 @@ component OneLiner() {
 
 component AuthorMultilineFallsBack() {
 	<p>
-		see
-		<code>
+		see <code>
 			.gsx
 		</code> file
 	</p>

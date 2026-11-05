@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-func TestExplicitProseSpaceNeverBecomesAttachingBreak(t *testing.T) {
+func TestProseSpacesBesidePunctuationMayWrap(t *testing.T) {
 	word := strings.Repeat("x", 35)
 	for _, text := range []string{
 		word + " !", word + " %", "( " + word, word + " …", word + " &#37;",
@@ -22,8 +22,8 @@ func TestExplicitProseSpaceNeverBecomesAttachingBreak(t *testing.T) {
 			if twice := fmtSourceWidth(t, got, width); twice != got {
 				t.Fatalf("not idempotent:\n%s\nthen:\n%s", got, twice)
 			}
-			if !strings.Contains(got, text) {
-				t.Fatalf("explicit space was broken at width%d: %q\n%s", width, text, got)
+			if width == 20 && strings.Contains(got, text) {
+				t.Fatalf("prose space did not wrap at width%d: %q\n%s", width, text, got)
 			}
 		}
 	}

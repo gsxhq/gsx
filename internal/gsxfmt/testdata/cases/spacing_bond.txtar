@@ -88,9 +88,9 @@ component Interp(s string) {
 
 component Brackets() {
 	<p>
-		xxxxxxxxxxxxxxxxx (
-		<a href="/x" class="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa">link</a>
-		)/<b>bold</b> more words.
+		xxxxxxxxxxxxxxxxx
+		(<a href="/x" class="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa">link</a>)/<b>bold</b> more
+		words.
 	</p>
 }
 

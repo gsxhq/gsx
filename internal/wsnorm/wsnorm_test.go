@@ -402,18 +402,21 @@ func TestNormalizeProseBoundaryRules(t *testing.T) {
 		{"opaque input", "<p>Click\n<input/></p>", []string{"Click"}},
 		{"opaque image", "<p>Click\n<img/></p>", []string{"Click"}},
 		{"opaque svg", "<p>Click\n<svg>icon</svg></p>", []string{"Click", "icon"}},
-		{"mandatory opaque after optional prose", "<p>Hello\n<>{ if ok { <b>…</b> } }<div>block</div></><i>word</i></p>", []string{"Hello", "…", "block", "word"}},
+		{"mandatory opaque after optional prose", "<p>Hello\n<>{ if ok { <b>…</b> } }<div>block</div></><i>word</i></p>", []string{"Hello ", "…", "block", "word"}},
+		{"mandatory opaque after optional space", "<p>Hello\n<>{ if ok { {\" \"} } }<div>block</div></><i>word</i></p>", []string{"Hello", "block", "word"}},
+		{"joined percent", "<p>{value}%</p>", []string{"%"}},
+		{"joined punctuation", "<p>Hello<em>world</em>!</p>", []string{"Hello", "world", "!"}},
 		{"text before tag", "<p>Hello\n <b>world</b></p>", []string{"Hello ", "world"}},
 		{"sibling layout", "<p><span>A</span>\n<span>B</span></p>", []string{"A", "B"}},
-		{"percent", "<p>{value}\n %</p>", []string{"%"}},
+		{"percent", "<p>{value}\n %</p>", []string{" %"}},
 		{"text after tag", "<p><b>x</b>\ny</p>", []string{"x", " y"}},
-		{"ellipsis", "<p>{value}\n …</p>", []string{"…"}},
-		{"ascii ellipsis", "<p>{value}\n ...</p>", []string{"..."}},
+		{"ellipsis", "<p>{value}\n …</p>", []string{" …"}},
+		{"ascii ellipsis", "<p>{value}\n ...</p>", []string{" ..."}},
 		{"explicit inline", "<p>{value} %</p>", []string{" %"}},
 		{"comments", "<p>Hello\n{/* comment */}\nworld</p>", []string{"Hello ", "world"}},
-		{"punctuation alternatives", "<p>Hello\n{ if ok { . } else { ! } }</p>", []string{"Hello", ".", "!"}},
-		{"opening alternatives", "<p>{ if ok { ( } else { [ } }\nworld</p>", []string{"(", "[", "world"}},
-		{"optional punctuation", "<p>Hello\n{ if ok { . } }!</p>", []string{"Hello", ".", "!"}},
+		{"punctuation alternatives", "<p>Hello\n{ if ok { . } else { ! } }</p>", []string{"Hello ", ".", "!"}},
+		{"opening alternatives", "<p>{ if ok { ( } else { [ } }\nworld</p>", []string{"(", "[", " world"}},
+		{"optional punctuation", "<p>Hello\n{ if ok { . } }!</p>", []string{"Hello ", ".", "!"}},
 		{"branch word", "<p>Hello\n{ if ok { word } else { ! } }</p>", []string{"Hello ", "word", "!"}},
 	}
 	for _, c := range cases {
@@ -431,7 +434,7 @@ func TestNormalizeProseBoundaryRules(t *testing.T) {
 	}
 }
 
-func TestNormalizeBranchAttachmentOutcomes(t *testing.T) {
+func TestNormalizeBranchContentOutcomes(t *testing.T) {
 	values := []string{".", "!", "…", "%", "word", "(", "&nbsp;"}
 	for _, a := range values {
 		for _, b := range values {
@@ -439,7 +442,7 @@ func TestNormalizeBranchAttachmentOutcomes(t *testing.T) {
 				f := parse(t, "<p>Hello\n{ if ok { "+a+" } else { "+b+" } }</p>")
 				wsnorm.Normalize(f)
 				want := "Hello"
-				needs := func(v string) bool { return v != "&nbsp;" && (v == "word" || v == "(") }
+				needs := func(v string) bool { return v != "&nbsp;" }
 				if needs(a) || needs(b) {
 					want += " "
 				}
