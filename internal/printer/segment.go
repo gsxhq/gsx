@@ -29,8 +29,8 @@ type segment struct {
 // there would introduce a prose separator (bonds, from spacingBonds). Otherwise the
 // boundary is SAFE and starts a new segment.
 //
-// breakable is true iff the edge guard passes: the first node must not begin
-// with a significant space and the last node must not end with one (a block
+// breakable is true iff the edge guard passes: the source text edges, looking
+// through transparent nodes, must not carry significant spaces (a block
 // opener / closer would otherwise absorb that space and change the normalized
 // AST). A single edge-safe segment is breakable too — a lone block-level child
 // must be free to take its own line so the document hierarchy stays visible;
@@ -49,10 +49,30 @@ func segmentChildren(nodes []ast.Markup, bonds []bool) (segs []segment, breakabl
 	}
 	segs = append(segs, segment{nodes: nodes[start:], bonds: bonds[start:]})
 
-	if leadsWithSpace(nodes[0]) || trailsWithSpace(nodes[len(nodes)-1]) {
+	if sourceEdgeHasSpace(nodes, true) || sourceEdgeHasSpace(nodes, false) {
 		return segs, false
 	}
 	return segs, true
+}
+
+// sourceEdgeHasSpace checks the source text edge through transparent nodes.
+// An added outer newline would absorb an inline separator there, even when a
+// comment or Go statement is the first or last node in the children list.
+func sourceEdgeHasSpace(nodes []ast.Markup, leading bool) bool {
+	start, dir := 0, 1
+	if !leading {
+		start, dir = len(nodes)-1, -1
+	}
+	for i := start; i >= 0 && i < len(nodes); i += dir {
+		if wsnorm.IsSourceTransparent(nodes[i]) {
+			continue
+		}
+		if leading {
+			return leadsWithSpace(nodes[i])
+		}
+		return trailsWithSpace(nodes[i])
+	}
+	return false
 }
 
 // glued reports whether a significant space (or the {" "} idiom's left bond)

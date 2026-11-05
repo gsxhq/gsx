@@ -137,7 +137,7 @@ func lostSpaceRuns(nodes []ast.Markup) []bool {
 				continue
 			}
 			j, ok := wsnorm.TextBoundarySibling(nodes, i, dir)
-			if !ok {
+			if !ok || wsnorm.IsSourceTransparent(nodes[j]) {
 				continue
 			}
 			if other, ok := nodes[j].(*ast.Text); ok {
