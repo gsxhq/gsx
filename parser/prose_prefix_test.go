@@ -43,3 +43,31 @@ func TestProsePrefixAfterSibling(t *testing.T) {
 		}
 	}
 }
+
+func TestBraceBodiesCaptureInteriorWhitespace(t *testing.T) {
+	for _, context := range []string{"component", "slot"} {
+		for _, gap := range []string{" ", "\n\t", "\r\n  "} {
+			t.Run(context+gap, func(t *testing.T) {
+				body := " <b>x</b>" + gap + "<i>y</i> "
+				src := "package p\ncomponent C(){" + body + "}\n"
+				if context == "slot" {
+					src = "package p\ncomponent C(){ <Card content={" + body + "}/> }\n"
+				}
+				f, err := ParseFile(token.NewFileSet(), "test.gsx", src, 0)
+				if err != nil {
+					t.Fatal(err)
+				}
+				var texts []string
+				ast.Inspect(f, func(n ast.Node) bool {
+					if text, ok := n.(*ast.Text); ok {
+						texts = append(texts, text.Value)
+					}
+					return true
+				})
+				if len(texts) != 3 || texts[0] != "x" || texts[1] != gap || texts[2] != "y" {
+					t.Fatalf("captured text = %#v, want x / %q / y (brace padding excluded)", texts, gap)
+				}
+			})
+		}
+	}
+}

@@ -46,7 +46,7 @@ component Page(μήνυμα string) {
 	if got := attrNames(local.Attrs); !slices.Equal(got, []string{"μήνυμα", "label数据٣", "_κρυφό"}) {
 		t.Fatalf("local call attrs = %q", got)
 	}
-	qualified := page.Body[1].(*ast.Element)
+	qualified := nonWhitespaceChildren(page.Body)[1].(*ast.Element)
 	if qualified.Tag != "组件.卡片" || !slices.Equal(attrNames(qualified.Attrs), []string{"标题"}) {
 		t.Fatalf("qualified Unicode call = tag %q attrs %q", qualified.Tag, attrNames(qualified.Attrs))
 	}

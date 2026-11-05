@@ -123,18 +123,17 @@ func bondedBreaks(src string) (int, bool) {
 }
 
 // lostSpaceRuns marks each boundary (before nodes[i]) between a Text and the
-// inline content it faces, straight from wsnorm.Spacing. It is the test's own
+// inline content it faces, straight from wsnorm.NeedsSourceSpace. It is the test's own
 // oracle, kept apart from spacingBonds so a bug there cannot hide here.
 func lostSpaceRuns(nodes []ast.Markup) []bool {
-	var sp wsnorm.Spacing
 	in := make([]bool, len(nodes))
 	for i := range nodes {
-		if j, ok := sp.NeedsProseSpace(nodes, i, 1); ok {
+		if j, ok := wsnorm.NeedsSourceSpace(nodes, i, 1); ok {
 			for k := i + 1; k <= j; k++ {
 				in[k] = true
 			}
 		}
-		if j, ok := sp.NeedsProseSpace(nodes, i, -1); ok {
+		if j, ok := wsnorm.NeedsSourceSpace(nodes, i, -1); ok {
 			for k := j + 1; k <= i; k++ {
 				in[k] = true
 			}

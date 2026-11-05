@@ -149,10 +149,9 @@ func normalizeMarkup(nodes []ast.Markup, preserve bool) []ast.Markup {
 			out = append(out, n)
 		}
 	}
-	// Children are normalized first so every boundary observes rendered text,
-	// not the child's cosmetic indentation. Updating left to right lets an
-	// inserted gap satisfy the next text's leading boundary across comments.
-	spacing := Spacing{}
+	// Children are normalized first. Source siblings determine separators,
+	// independently of element names or possible runtime output. Updating left
+	// to right avoids duplicate source gaps across transparent comments.
 	for i, node := range out {
 		text, ok := node.(*ast.Text)
 		if !ok {
@@ -160,12 +159,12 @@ func normalizeMarkup(nodes []ast.Markup, preserve bool) []ast.Markup {
 		}
 		br := edges[text]
 		if br.leading {
-			if _, gap := spacing.NeedsProseSpace(out, i, -1); gap {
+			if _, gap := NeedsSourceSpace(out, i, -1); gap {
 				text.Value = " " + text.Value
 			}
 		}
 		if br.trailing {
-			if _, gap := spacing.NeedsProseSpace(out, i, 1); gap {
+			if _, gap := NeedsSourceSpace(out, i, 1); gap {
 				text.Value += " "
 			}
 		}
@@ -203,8 +202,7 @@ func normalizeAttrs(attrs []ast.Attr) {
 //     (\n or \r) — cosmetic indentation; otherwise return a single inline space
 //     " " (keep=true).
 //   - Else: split into lead (leading whitespace run), core (the middle) and trail
-//     (trailing whitespace run). Internal whitespace becomes one space; a newline beside an existing
-//     rendered gap needs no additional separator. Punctuation is ordinary text.
+//     (trailing whitespace run). Internal whitespace becomes one space.
 //     The result is core, prefixed with a space iff lead is
 //     non-empty AND contains no newline, and suffixed with a space iff trail is
 //     non-empty AND contains no newline.
@@ -243,36 +241,21 @@ func normalizeText(v string) (out string, keep bool) {
 	return b.String(), true
 }
 
-// collapseInto preserves original text/entity bytes. Inline whitespace is an
-// authored separator; newline runs supply a separator unless a decoded edge
-// already renders a gap. Punctuation is ordinary prose content.
+// collapseInto preserves original text/entity bytes and collapses internal
+// ASCII whitespace runs to one source separator. Unicode/entity spaces remain
+// data and do not replace an authored ASCII separator.
 func collapseInto(b *strings.Builder, core string) {
-	for start := 0; start < len(core); {
-		end := start
-		for end < len(core) && !isWS(core[end]) {
-			end++
-		}
-		word := core[start:end]
-		b.WriteString(word)
-		gapEnd := end
-		for gapEnd < len(core) && isWS(core[gapEnd]) {
-			gapEnd++
-		}
-		if gapEnd == len(core) {
-			return
-		}
-		needsSpace := true
-		if containsNewline(core[end:gapEnd]) {
-			nextEnd := gapEnd
-			for nextEnd < len(core) && !isWS(core[nextEnd]) {
-				nextEnd++
+	space := false
+	for i := 0; i < len(core); i++ {
+		if isWS(core[i]) {
+			if !space {
+				b.WriteByte(' ')
 			}
-			needsSpace = LineBreakPreservesSpace(word, core[gapEnd:nextEnd])
+			space = true
+			continue
 		}
-		if needsSpace {
-			b.WriteByte(' ')
-		}
-		start = gapEnd
+		b.WriteByte(core[i])
+		space = false
 	}
 }
 

@@ -61,26 +61,19 @@ func glued(left, right ast.Markup) bool {
 	return trailsWithSpace(left) || leadsWithSpace(right) || isSpacingInterp(right)
 }
 
-// spacingBonds reports, for each boundary before nodes[i], whether it must
-// not break because it lies between text and the inline content that text
-// touches: a new break would normalize to a space and change adjacency. The
-// rule is shared with normalization (wsnorm.Spacing), with every
-// non-literal interpolation taken as text since the formatter has no types.
-// Every boundary of that run is bonded, including those beside the comments,
-// Go blocks and optional blocks the rule looks through: a new break in
-// the run must not change its normalized text boundary. It is computed once over the whole children list; segmentChildren
-// and fillParts both consume it. A break the author wrote there
-// (ast.LeadingBreak) is kept by fillParts.
+// spacingBonds protects authored adjacency between substantive Text and any
+// source sibling. The rule is shared with normalization and looks through only
+// comments and Go statements. Each boundary across those transparent nodes is
+// bonded so formatting cannot introduce a separator by adding a newline.
 func spacingBonds(nodes []ast.Markup) []bool {
-	var sp wsnorm.Spacing
 	bonds := make([]bool, len(nodes))
 	for i := range nodes {
-		if j, loses := sp.NeedsProseSpace(nodes, i, 1); loses {
+		if j, loses := wsnorm.NeedsSourceSpace(nodes, i, 1); loses {
 			for k := i + 1; k <= j; k++ {
 				bonds[k] = true
 			}
 		}
-		if j, loses := sp.NeedsProseSpace(nodes, i, -1); loses {
+		if j, loses := wsnorm.NeedsSourceSpace(nodes, i, -1); loses {
 			for k := j + 1; k <= i; k++ {
 				bonds[k] = true
 			}
@@ -229,7 +222,7 @@ func (p *printer) fillParts(nodes []ast.Markup, bonds []bool) []pretty.Doc {
 			}
 			for j, w := range words {
 				if j > 0 {
-					if p.caseBodyBondWord(w) || !wsnorm.LineBreakPreservesSpace(words[j-1], w) {
+					if p.caseBodyBondWord(w) {
 						cur = append(cur, pretty.Text(" ")) // bond: never breakable
 					} else {
 						gap(pretty.Line) // word gap

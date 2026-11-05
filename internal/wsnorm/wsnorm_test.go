@@ -394,16 +394,25 @@ func TestNormalizeProseBoundaryRules(t *testing.T) {
 		name, body string
 		want       []string
 	}{
+		{"component prose", "<p>Hello\n<Link>world</Link></p>", []string{"Hello ", "world"}},
+		{"image between prose", "<p>Read\n<img/>\nmore</p>", []string{"Read ", " more"}},
+		{"block between prose", "<p>Read\n<div>box</div>\nmore</p>", []string{"Read ", "box", " more"}},
+		{"empty fragment", "<p>Hello\n<></>!</p>", []string{"Hello ", "!"}},
+		{"empty expression", "<p>Hello\n{\"\"}!</p>", []string{"Hello ", "!"}},
+		{"explicit expression spaces", "<p>{\"  \"}\n%</p>", []string{" %"}},
+		{"outer newlines", "<p>\n hello\n</p>", []string{"hello"}},
+		{"initial comment", "<p>{/* comment */}\nhello</p>", []string{"hello"}},
+		{"final comment", "<p>hello\n{/* comment */}</p>", []string{"hello"}},
 		{"button prose", "<p>Click\n<button>here</button></p>", []string{"Click ", "here"}},
 		{"label prose", "<p>Click\n<label>here</label></p>", []string{"Click ", "here"}},
 		{"output prose", "<p>Read\n<output>value</output></p>", []string{"Read ", "value"}},
 		{"map prose", "<p>Read\n<map>value</map></p>", []string{"Read ", "value"}},
-		{"empty button", "<p>Click\n<button/></p>", []string{"Click"}},
-		{"opaque input", "<p>Click\n<input/></p>", []string{"Click"}},
-		{"opaque image", "<p>Click\n<img/></p>", []string{"Click"}},
-		{"opaque svg", "<p>Click\n<svg>icon</svg></p>", []string{"Click", "icon"}},
-		{"mandatory opaque after optional prose", "<p>Hello\n<>{ if ok { <b>…</b> } }<div>block</div></><i>word</i></p>", []string{"Hello ", "…", "block", "word"}},
-		{"mandatory opaque after optional space", "<p>Hello\n<>{ if ok { {\" \"} } }<div>block</div></><i>word</i></p>", []string{"Hello", "block", "word"}},
+		{"empty button", "<p>Click\n<button/></p>", []string{"Click "}},
+		{"input sibling", "<p>Click\n<input/></p>", []string{"Click "}},
+		{"image sibling", "<p>Click\n<img/></p>", []string{"Click "}},
+		{"svg sibling", "<p>Click\n<svg>icon</svg></p>", []string{"Click ", "icon"}},
+		{"fragment sibling with branch", "<p>Hello\n<>{ if ok { <b>…</b> } }<div>block</div></><i>word</i></p>", []string{"Hello ", "…", "block", "word"}},
+		{"fragment sibling with explicit branch space", "<p>Hello\n<>{ if ok { {\" \"} } }<div>block</div></><i>word</i></p>", []string{"Hello ", "block", "word"}},
 		{"joined percent", "<p>{value}%</p>", []string{"%"}},
 		{"joined punctuation", "<p>Hello<em>world</em>!</p>", []string{"Hello", "world", "!"}},
 		{"text before tag", "<p>Hello\n <b>world</b></p>", []string{"Hello ", "world"}},
@@ -412,10 +421,10 @@ func TestNormalizeProseBoundaryRules(t *testing.T) {
 		{"text after tag", "<p><b>x</b>\ny</p>", []string{"x", " y"}},
 		{"ellipsis", "<p>{value}\n …</p>", []string{" …"}},
 		{"ascii ellipsis", "<p>{value}\n ...</p>", []string{" ..."}},
-		{"entity gap internal", "<p>a&nbsp;\n b</p>", []string{"a&nbsp;b"}},
-		{"entity gap split", "<p>a&nbsp;\n{\"b\"}</p>", []string{"a&nbsp;"}},
-		{"expression gap split", "<p>{\"a\\u00a0\"}\n b</p>", []string{"b"}},
-		{"entity gap on right", "<p>{\"a\"}\n &nbsp;b</p>", []string{"&nbsp;b"}},
+		{"entity gap internal", "<p>a&nbsp;\n b</p>", []string{"a&nbsp; b"}},
+		{"entity gap split", "<p>a&nbsp;\n{\"b\"}</p>", []string{"a&nbsp; "}},
+		{"expression gap split", "<p>{\"a\\u00a0\"}\n b</p>", []string{" b"}},
+		{"entity gap on right", "<p>{\"a\"}\n &nbsp;b</p>", []string{" &nbsp;b"}},
 		{"explicit space beside entity", "<p>a&nbsp; {\"b\"}</p>", []string{"a&nbsp; "}},
 		{"explicit inline", "<p>{value} %</p>", []string{" %"}},
 		{"comments", "<p>Hello\n{/* comment */}\nworld</p>", []string{"Hello ", "world"}},
@@ -446,11 +455,7 @@ func TestNormalizeBranchContentOutcomes(t *testing.T) {
 			t.Run(a+"/"+b, func(t *testing.T) {
 				f := parse(t, "<p>Hello\n{ if ok { "+a+" } else { "+b+" } }</p>")
 				wsnorm.Normalize(f)
-				want := "Hello"
-				needs := func(v string) bool { return v != "&nbsp;" }
-				if needs(a) || needs(b) {
-					want += " "
-				}
+				want := "Hello "
 				if got := collectText(f)[0]; got != want {
 					t.Fatalf("first text %q want %q", got, want)
 				}

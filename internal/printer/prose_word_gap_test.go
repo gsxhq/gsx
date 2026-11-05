@@ -22,12 +22,8 @@ func TestProseSpacesBesidePunctuationMayWrap(t *testing.T) {
 			if twice := fmtSourceWidth(t, got, width); twice != got {
 				t.Fatalf("not idempotent:\n%s\nthen:\n%s", got, twice)
 			}
-			existingGap := strings.ContainsAny(text, "\u00a0\u3000") || strings.Contains(text, "&nbsp;")
-			if width == 20 && !existingGap && strings.Contains(got, text) {
+			if width == 20 && strings.Contains(got, text) {
 				t.Fatalf("prose space did not wrap at width%d: %q\n%s", width, text, got)
-			}
-			if existingGap && !strings.Contains(got, text) {
-				t.Fatalf("extra explicit space beside an existing gap changed: %q\n%s", text, got)
 			}
 		}
 	}
