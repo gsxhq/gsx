@@ -44,3 +44,30 @@ and formatter, regenerate affected corpus outputs, and review each changed
 case. Run targeted regressions and obtain independent render probes, lint,
 docs build and final uncached CI before completing the revision. The baseline
 validation above predates this revision and does not validate its changes.
+
+
+Revision review evidence:
+
+- Removed punctuation classifications and retained the existing rendered-gap
+  policy. Internal and interpolation-split Unicode/entity gaps agree; explicit
+  extra inline spaces beside them stay protected during wrapping.
+- Reviewed every changed semantic archive: `childspacing/quiet` now honors its
+  authored punctuation separators; `normalized_prose_internal` preserves
+  separators before punctuation while retaining existing-gap behavior;
+  `normalized_prose_root_slots` applies the same rule to roots/slots;
+  `normalized_prose_rules` pins spaced and adjacent percent/emphasis examples.
+  The `childspacing/branches` change only clarifies its fixture description.
+- Reviewed formatter archives: `explicit-prose-spaces` allows punctuation-space
+  wrapping while retaining entity/Unicode gap bonds; `inline-atoms` and
+  `spacing_bond` preserve joined punctuation boundaries during reflow.
+- Separate contract and adversarial reviews approved the final correction.
+  A freshly built CLI matched 579-byte false and 591-byte true hand-expected
+  renders before formatting and at widths 1, 20 and 120, with idempotent second
+  passes. Probes include punctuation, branches, entities/NBSP, root/slots,
+  explicit spaces, comments, sibling layout and preserved contexts.
+- Focused wsnorm/printer/gsxfmt tests, formatter corpus properties, exact corpus
+  and examples passed. Final lint and Node 24 docs build passed.
+- Final authoritative uncached `make ci` passed on Go 1.27.1 (exit 0), after
+  the existing-gap correction, including both modules, build/vet/tests,
+  formatting, examples and type-bundle parity. Log:
+  `/tmp/gsx-authored-spacing-final-ci.log`.

@@ -1,6 +1,7 @@
 # GSX normalized spacing: bounded static contract
 
-**Status:** Implemented baseline; authored-attachment revision awaiting final validation.
+**Status:** Implemented; authored-attachment revision passed contract review,
+adversarial render probes and final uncached CI.
 
 Baseline: origin/main JSX normalization; retain ordinary formatter/layout and
 HTML-preserving pre/textarea/raw script/style contexts. Do not implement literal
@@ -59,7 +60,7 @@ spaces, so a second normalization leaves them unchanged.
 
 ## Authored attachment
 
-No punctuation or Unicode category suppresses a prose separator. The source
+No punctuation character suppresses a prose separator. The source
 expresses attachment by adjacency: `{value}%` stays joined, while `{value} %`
 and `{value}` followed by a prose newline and `%` retain a separator. This
 matches ordinary HTML prose spacing without emitting layout-only indentation.
